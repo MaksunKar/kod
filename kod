@@ -1,0 +1,296 @@
+import java.util.function.*;
+
+class LambdaExpr {
+    String var;
+    String arg;
+    LambdaExpr body;
+    LambdaExpr left;
+    LambdaExpr right;
+
+    LambdaExpr(String var) {
+        this.var = var;
+        this.arg = null;
+        this.body = null;
+        this.left = null;
+        this.right = null;
+    }
+
+    LambdaExpr(String arg, LambdaExpr body) {
+        this.var = null;
+        this.arg = arg;
+        this.body = body;
+        this.left = null;
+        this.right = null;
+    }
+
+    LambdaExpr(LambdaExpr left, LambdaExpr right) {
+        this.var = null;
+        this.arg = null;
+        this.body = null;
+        this.left = left;
+        this.right = right;
+    }
+
+    @Override
+    public String toString() {
+        if (var != null) {
+            return var;
+        } else if (arg != null && body != null) {
+            return "\\" + arg + "." + body.toString();
+        } else if (left != null && right != null) {
+            return "(" + left.toString() + " " + right.toString() + ")";
+        } else {
+            return "???";
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) {
+            return true;
+        }
+        if (!(o instanceof LambdaExpr)) {
+            return false;
+        }
+        LambdaExpr other = (LambdaExpr)o;
+        if (var != null && other.var != null) {
+            return var.equals(other.var);
+        } else if (arg != null && body != null && other.arg != null && other.body != null) {
+            return arg.equals(other.arg) && body.equals(other.body);
+        } else if (left != null && right != null && other.left != null && other.right != null) {
+            return left.equals(other.left) && right.equals(other.right);
+        } else {
+            return false;
+        }
+    }
+}
+
+class Main {
+
+    static LambdaExpr parse(String s) {
+        s = removeSpaces(s);
+        int i = 0;
+        return parseExpr(s, i);
+    }
+
+    static LambdaExpr parseExpr(String s, int i) {
+        LambdaExpr left = parsePart(s, i);
+        while (i < s.length() && s.charAt(i) != ')') {
+            LambdaExpr right = parsePart(s, i);
+            LambdaExpr e = new LambdaExpr(left, right);
+            left = e;
+        }
+        return left;
+    }
+
+    static LambdaExpr parsePart(String s, int i) {
+        if (s.charAt(i) == '(') {
+            i++;
+            LambdaExpr e = parseExpr(s, i);
+            if (s.charAt(i) == ')') {
+                i++;
+                return e;
+            } else {
+                syntaxError();
+                return null;
+            }
+        } else if (s.charAt(i) == '\\') {
+            i++;
+            String arg = String.valueOf(s.charAt(i));
+            i++;
+            if (s.charAt(i) == '.') {
+                i++;
+                LambdaExpr body = parseExpr(s, i);
+                return new LambdaExpr(arg, body);
+            } else {
+                syntaxError();
+                return null;
+            }
+        } else {
+            String var = String.valueOf(s.charAt(i));
+            i++;
+            return new LambdaExpr(var);
+        }
+    }
+
+    static String removeSpaces(String s) {
+        s = s.replaceAll("\\s","");
+        return s;
+    }
+
+    static void syntaxError() {
+        throw new RuntimeException("syntax error");
+    }
+
+    static LambdaExpr alpha(LambdaExpr e, String newArg) {
+        if (lambdaType(e) == "assoc") {
+            LambdaExpr e2 = new LambdaExpr();
+            e2.var = newArg;
+            e2.body = renameReferences(e.body, e.arg, e2.var);
+            return e2;
+        } else {
+            alphaError();
+            return null;
+        }
+    }
+
+    static LambdaExpr beta(LambdaExpr e) {
+        if (lambdaType(e) == "app") {
+            LambdaExpr e1 = e.left;
+            LambdaExpr e2 = e.right;
+            if (lambdaType(e1) == "assoc") {
+                String arg = e1.arg;
+                LambdaExpr body = e1.body;
+                return substitute(body, arg, e2);
+            } else {
+                betaError();
+                return null;
+            }
+        } else {
+            betaError();
+            return null;
+        }
+    }
+
+    static LambdaExpr substitute(LambdaExpr e, String arg, LambdaExpr value) {
+        if (lambdaType(e) == "var") {
+            if (e.var.equals(arg)) {
+                return value;
+            } else {
+                return e;
+            }
+        } else if (lambdaType(e) == "assoc") {
+            if (e.arg.equals(arg)) {
+                return e;
+            } else {
+                LambdaExpr newBody = substitute(e.body, arg, value);
+                if (!newBody.equals(e.body)) {
+                    if (findReference(value, e.arg)) {
+                        betaError();
+                        return null;
+                    } else {
+                        LambdaExpr e2 = new LambdaExpr();
+                        e2.arg = e.arg;
+                        e2.body = newBody;
+                        return e2;
+                    }
+                } else {
+                    return e;
+                }
+            }
+        } else if (lambdaType(e) == "app") {
+            LambdaExpr newLeft = substitute(e.left, arg, value);
+            LambdaExpr newRight = substitute(e.right, arg, value);
+            if (!newLeft.equals(e.left) || !newRight.equals(e.right)) {
+                LambdaExpr e2 = new LambdaExpr();
+                e2.left = newLeft;
+                e2.right = newRight;
+                return e2;
+            } else {
+                return e;
+            }
+        } else {
+            betaError();
+            return null;
+        }
+    }
+
+    static boolean findReference(LambdaExpr e, String name) {
+        String type = lambdaType(e);
+        if (type.equals("var")) {
+            return e.var.equals(name);
+        } else if (type.equals("app")) {
+            boolean foundLeft = findReference(e.left, name);
+            boolean foundRight = findReference(e.right, name);
+            return foundLeft || foundRight;
+        } else if (type.equals("assoc")) {
+            if (e.arg.equals(name)) {
+                return false;
+            } else {
+                return findReference(e.body, name);
+            }
+        } else {
+            return false;
+        }
+    }
+
+    static LambdaExpr renameReferences(LambdaExpr e, String oldArg, String newArg) {
+        String type = lambdaType(e);
+        if (type.equals("var")) {
+            if (e.var.equals(oldArg)) {
+                LambdaExpr e2 = new LambdaExpr();
+                e2.var = newArg;
+                return e2;
+            } else if (e.var.equals(newArg)) {
+                alphaError();
+                return null;
+            } else {
+                return e;
+            }
+        } else if (type.equals("app")) {
+            LambdaExpr newLeft = renameReferences(e.left, oldArg, newArg);
+            LambdaExpr newRight = renameReferences(e.right, oldArg, newArg);
+            if (!newLeft.equals(e.left) || !newRight.equals(e.right)) {
+                LambdaExpr e2 = new LambdaExpr();
+                e2.left = newLeft;
+                e2.right = newRight;
+                return e2;
+            } else {
+                return e;
+            }
+        } else if (type.equals("assoc")) {
+            if (e.arg.equals(oldArg)) {
+
+                if (findReference(e.body, newArg)) {
+                    alphaError();
+                    return null;
+                }
+                return e;
+            } else if (e.arg.equals(newArg)) {
+                if (findReference(e.body, oldArg)) {
+                    alphaError();
+                    return null;
+                }
+                return e;
+            } else {
+                LambdaExpr newBody = renameReferences(e.body, oldArg, newArg);
+                if (!newBody.equals(e.body)) {
+                    LambdaExpr e2 = new LambdaExpr();
+                    e2.arg = e.arg;
+                    e2.body = newBody;
+                    return e2;
+                } else {
+                    return e;
+                }
+            }
+        } else {
+            alphaError();
+            return null;
+        }
+    }
+
+    static String lambdaType(LambdaExpr e) {
+        if (e.var != null) {
+            return "var";
+        } else if (e.arg != null && e.body != null) {
+            return "assoc";
+        } else if (e.left != null && e.right != null) {
+            return "app";
+        } else {
+            return "unknown";
+        }
+    }
+    static void alphaError() {
+        throw new RuntimeException("can not make alpha-conversion");
+    }
+
+    static void betaError() {
+        throw new RuntimeException("can not apply beta-reduction");
+    }
+
+    public static void main(String[] args) {
+        LambdaExpr e = parse("(\\x.\\y.(x y))");
+        e = beta(e);
+        System.out.println(e);
+    }
+}
